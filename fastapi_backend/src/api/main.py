@@ -91,22 +91,27 @@ def find_best_answer(question: str, qa_pairs: List[tuple]) -> Optional[str]:
 # PUBLIC_INTERFACE
 async def query_gemini(prompt: str) -> str:
     """
-    Query Google Gemini LLM API endpoint for a response to a question,
+    Query the actual Google Gemini LLM API endpoint for a response to a question,
     including the answers.txt content as part of the context so the LLM
     uses it as the primary source when possible.
 
     If an actual API endpoint is not configured, returns a simulated Gemini response.
+
+    Uses the API endpoint and API key from environment variables:
+    - GEMINI_API_URL: Full URL to Gemini endpoint (e.g., v1beta/models/gemini-pro:generateContent)
+    - GEMINI_API_KEY: Bearer API token (Google service account or Gemini key, not hardcoded)
     """
+    import json
+
     GEMINI_API_URL = os.getenv("GEMINI_API_URL", "")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-    # Read answers.txt content for context
+    # Read answers.txt content for context (if available)
     context_str = ""
     try:
         with open(ANSWERS_FILE, "r", encoding="utf-8") as f:
             answers_txt_content = f.read().strip()
             if answers_txt_content:
-                # We present the file as reference material for Gemini
                 context_str = (
                     "The following Q&A pairs from 'answers.txt' provide authoritative information. "
                     "Always use these as your knowledge base when responding if information matches. "
@@ -118,38 +123,51 @@ async def query_gemini(prompt: str) -> str:
     except Exception:
         context_str = ""
 
-    # The prompt that is sent to Gemini will consist of the file content plus the user's query.
-    extended_prompt = (
-        f"{context_str}\nUser question: {prompt}"
-        if context_str else prompt
-    )
+    # Gemini expects the prompt as part of a message or content (see official API docs)
+    extended_prompt = f"{context_str}\nUser question: {prompt}" if context_str else prompt
 
-    # For demo or fallback to mock if API not configured
+    # Fallback to mock if API not configured
     if not GEMINI_API_URL or not GEMINI_API_KEY:
         return f"Simulated Gemini response (answers.txt provided as context):\n\n{extended_prompt}"
 
     headers = {
-        "Authorization": f"Bearer {GEMINI_API_KEY}",
         "Content-Type": "application/json",
+        "Authorization": f"Bearer {GEMINI_API_KEY}",
     }
-    json_data = {
-        "messages": [
-            # If your API supports system/context messages, uncomment below.
-            # {"role": "system", "content": context_str} if context_str else None,
-            {"role": "user", "content": extended_prompt}
-        ]
-    }
-    # Remove None entries (in case context_str was not present)
-    json_data["messages"] = [m for m in json_data["messages"] if m is not None]
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(GEMINI_API_URL, headers=headers, json=json_data) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                # Your actual Gemini API format may differ;
-                # Below is a plausible response extraction:
-                return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return f"Gemini returned HTTP {resp.status} (with answers.txt context included)"
+    # Official Gemini (Google AI) API format from documentation
+    json_payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": extended_prompt}
+                ]
+            }
+        ]
+        # Optionally, set "generationConfig": ... if needed for model parameters.
+    }
+
+    # Make request and handle API response
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(GEMINI_API_URL, headers=headers, json=json_payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # The response format is typically {"candidates":[{"content":{"parts":[{"text":"..."}]}}],...}
+                    try:
+                        return (
+                            data.get("candidates", [{}])[0]
+                                .get("content", {})
+                                .get("parts", [{}])[0]
+                                .get("text", "")
+                        )
+                    except Exception:
+                        return json.dumps(data)
+                # Return HTTP status and diagnostic info on error
+                error_detail = await resp.text()
+                return f"Gemini returned HTTP {resp.status}: {error_detail}"
+    except Exception as e:
+        return f"Gemini API request failed ({type(e).__name__}): {str(e)}\nPrompt was:\n{extended_prompt}"
 
 
 # --- Endpoints ---
