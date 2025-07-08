@@ -204,6 +204,9 @@ async def answer_query(query: ChatQuery):
     return ChatAnswer(answer=gemini_resp, from_gemini=True)
 
 
+from fastapi.responses import JSONResponse
+from fastapi import status
+
 # PUBLIC_INTERFACE
 @app.post(
     "/chat",
@@ -215,7 +218,21 @@ async def answer_query(query: ChatQuery):
 async def chat_interface(query: ChatQuery):
     """
     Conversational endpoint for frontend, always delegates to Gemini with answers.txt as system context.
+    Checks that required Gemini API configuration is present and returns a user-facing error if missing.
     """
+    missing = []
+    gemini_api_url = os.getenv("GEMINI_API_URL")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_url:
+        missing.append("GEMINI_API_URL")
+    if not gemini_api_key:
+        missing.append("GEMINI_API_KEY")
+    if missing:
+        message = "Required configuration variables missing: " + ", ".join(missing)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": message, "missing": missing},
+        )
     return await answer_query(query)
 
 
