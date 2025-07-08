@@ -233,10 +233,17 @@ async def chat_interface(query: ChatQuery):
     """
     Identical to /answer. Chat endpoint for conversational UI.
     Ensures 'answer' is never None or empty, with error/debug logging for blank Gemini responses.
+    Returns a JSON object: {'answer': <str>, 'from_gemini': True}.
     """
-    # Logging input arrival for debug
     logger.info(f"Received /chat POST: {repr(query.question)}")
-    return await answer_query(query)
+    # Use answer_query to ensure consistent enforcement of non-empty answer
+    resp: ChatAnswer = await answer_query(query)
+    # Defensive: Further enforce nonempty 'answer', just in case
+    answer_text = getattr(resp, "answer", None)
+    if not answer_text or not str(answer_text).strip() or answer_text.strip().lower() == "[no reply returned by gemini. please try again, or check backend logs for errors.]":
+        logger.error("Final backend answer for /chat was empty or fallback; sending safe fallback string.")
+        resp.answer = "Sorry, no answer could be generated at this time. Please try again."
+    return resp
 
 # PUBLIC_INTERFACE
 @app.get(
