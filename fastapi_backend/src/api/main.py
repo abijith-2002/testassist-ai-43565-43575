@@ -91,32 +91,65 @@ def find_best_answer(question: str, qa_pairs: List[tuple]) -> Optional[str]:
 # PUBLIC_INTERFACE
 async def query_gemini(prompt: str) -> str:
     """
-    Query Google Gemini LLM API endpoint for a response to a question.
+    Query Google Gemini LLM API endpoint for a response to a question,
+    including the answers.txt content as part of the context so the LLM
+    uses it as the primary source when possible.
 
-    NOTE: This is a placeholder. Replace with your Gemini endpoint and setup.
+    If an actual API endpoint is not configured, returns a simulated Gemini response.
     """
-    # Example only: The actual Gemini API requires proper credentials and endpoint.
     GEMINI_API_URL = os.getenv("GEMINI_API_URL", "")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    # For demo, fallback to an LLM mock if not configured
+
+    # Read answers.txt content for context
+    context_str = ""
+    try:
+        with open(ANSWERS_FILE, "r", encoding="utf-8") as f:
+            answers_txt_content = f.read().strip()
+            if answers_txt_content:
+                # We present the file as reference material for Gemini
+                context_str = (
+                    "The following Q&A pairs from 'answers.txt' provide authoritative information. "
+                    "Always use these as your knowledge base when responding if information matches. "
+                    "If the relevant answer is not found, then answer with your own knowledge. "
+                    "----- BEGIN ANSWERS.TXT -----\n"
+                    f"{answers_txt_content}\n"
+                    "----- END ANSWERS.TXT -----\n"
+                )
+    except Exception:
+        context_str = ""
+
+    # The prompt that is sent to Gemini will consist of the file content plus the user's query.
+    extended_prompt = (
+        f"{context_str}\nUser question: {prompt}"
+        if context_str else prompt
+    )
+
+    # For demo or fallback to mock if API not configured
     if not GEMINI_API_URL or not GEMINI_API_KEY:
-        # Simulate LLM answer
-        return f"Simulated Gemini response for: '{prompt}'"
+        return f"Simulated Gemini response (answers.txt provided as context):\n\n{extended_prompt}"
+
     headers = {
         "Authorization": f"Bearer {GEMINI_API_KEY}",
         "Content-Type": "application/json",
     }
     json_data = {
         "messages": [
-            {"role": "user", "content": prompt}
+            # If your API supports system/context messages, uncomment below.
+            # {"role": "system", "content": context_str} if context_str else None,
+            {"role": "user", "content": extended_prompt}
         ]
     }
+    # Remove None entries (in case context_str was not present)
+    json_data["messages"] = [m for m in json_data["messages"] if m is not None]
+
     async with aiohttp.ClientSession() as session:
         async with session.post(GEMINI_API_URL, headers=headers, json=json_data) as resp:
             if resp.status == 200:
                 data = await resp.json()
+                # Your actual Gemini API format may differ;
+                # Below is a plausible response extraction:
                 return data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return f"Gemini returned HTTP {resp.status}"
+            return f"Gemini returned HTTP {resp.status} (with answers.txt context included)"
 
 
 # --- Endpoints ---
