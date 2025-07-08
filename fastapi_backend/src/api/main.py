@@ -1,4 +1,12 @@
 import os
+
+# --- load .env variables before anything else ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Loads variables from .env at project root, if found
+except ImportError:
+    pass  # dotenv is in requirements.txt, so this should succeed; if not, continue as normal
+
 from fastapi import FastAPI, status, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
