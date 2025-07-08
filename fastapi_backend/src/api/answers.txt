@@ -1,0 +1,29 @@
+Q: What is regression testing in software applications?
+A: Regression testing ensures that new changes or bug fixes have not adversely affected existing functionality of the application.
+
+Q: How can you automate UI tests for a web application?
+A: UI tests can be automated using frameworks like Selenium, Cypress, or Playwright, which simulate user interactions with the web interface.
+
+Q: What does a 'test case' typically include?
+A: A test case usually includes test steps, expected results, preconditions, test data, and the actual result fields.
+
+Q: How is a bug different from a defect in software testing?
+A: In most contexts, a 'bug' is a fault found during development, while a 'defect' is an issue found after deployment. The terms are often used interchangeably.
+
+Q: What should you do if a test fails unexpectedly?
+A: Investigate the root cause, review test data and environment, verify recent changes, and collaborate with the development team as needed.
+
+Q: Can performance testing be done with open source tools?
+A: Yes, tools like JMeter, Gatling, and Locust are commonly used for open-source performance testing.
+
+Q: What is a test plan?
+A: A test plan documents the scope, approach, resources, and schedule of intended test activities for a specific project or feature.
+
+Q: When is exploratory testing most useful?
+A: Exploratory testing is valuable when requirements are incomplete, rapidly changing, or for identifying unanticipated issues.
+
+Q: Why is test automation important in agile development?
+A: Automation enables rapid feedback on code changes, reduces manual effort, and supports continuous integration/delivery pipelines.
+
+Q: How do you prioritize test cases for execution?
+A: Test cases are prioritized based on risk, impact, business criticality, recent changes, and frequency of use.
