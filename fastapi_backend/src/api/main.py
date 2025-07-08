@@ -232,8 +232,23 @@ async def answer_query(query: ChatQuery):
 async def chat_interface(query: ChatQuery):
     """
     Identical to /answer. Chat endpoint for conversational UI.
-    Ensures 'answer' is never None or empty, with error/debug logging for blank Gemini responses.
+
+    Ensures 'answer' is NEVER None or empty, with error/debug logging for blank Gemini responses.
+
     Returns a JSON object: {'answer': <str>, 'from_gemini': True}.
+
+    -- Gemini Extraction & Safeguards --
+      - Gemini's reply is extracted as: data['candidates'][0]['content']['parts'][0]['text']
+      - If no candidate or text is present, fallback debug/error logging is triggered.
+      - Response model guarantees 'answer' is a nonempty string; if empty, a safe fallback is used.
+
+    -- FIELD CONTRACT (Frontend may rely on this) --
+      - The reply is returned as:
+          {
+            "answer": <nonempty string, either Gemini's reply or a fallback>,
+            "from_gemini": true
+          }
+      - This contract is always enforced. The 'answer' key is always present and never empty.
     """
     logger.info(f"Received /chat POST: {repr(query.question)}")
     # Use answer_query to ensure consistent enforcement of non-empty answer
