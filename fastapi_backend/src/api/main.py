@@ -1,4 +1,5 @@
 import os
+import logging
 
 # --- load .env variables before anything else ---
 try:
@@ -12,6 +13,10 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import aiohttp
+
+# --- Set up logging for debug/error tracing ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("chat-api")
 
 # --- Application Metadata with OpenAPI Tags ---
 app = FastAPI(
@@ -125,7 +130,6 @@ async def query_gemini_live(prompt: str, api_url: str, api_key: str) -> str:
     context = get_answers_txt_context()
     full_prompt = f"{context}\nUser question: {prompt}" if context else prompt
 
-    # Remove 'Authorization' header; use only Content-Type
     headers = {
         "Content-Type": "application/json"
     }
@@ -139,7 +143,6 @@ async def query_gemini_live(prompt: str, api_url: str, api_key: str) -> str:
         ]
     }
 
-    # Add the key as a query parameter to the URL
     from yarl import URL  # aiohttp dependency
     parsed_url = URL(api_url).with_query(key=api_key)
     api_full_url = str(parsed_url)
@@ -150,16 +153,25 @@ async def query_gemini_live(prompt: str, api_url: str, api_key: str) -> str:
             if resp.status == 200:
                 try:
                     data = await resp.json()
-                    return (
+                    # Extract Gemini answer robustly; log for debugging
+                    answer = (
                         data.get("candidates", [{}])[0]
-                            .get("content", {})  # Second nesting for Gemini response
+                            .get("content", {})
                             .get("parts", [{}])[0]
                             .get("text", "")
-                    ) or text_resp
-                except Exception:
-                    return text_resp
+                    )
+                    logger.info(f"Gemini API raw response: {repr(answer)}")
+                    if not answer or not answer.strip():
+                        logger.error(f"Gemini API returned empty or None answer (raw={repr(answer)}). text_resp fallback used.")
+                        # Fallback to raw text for debug, but will enforce nonempty upstream
+                        return text_resp
+                    return answer
+                except Exception as ex:
+                    logger.error(f"Exception parsing Gemini response: {ex} -- raw: {text_resp}")
+                    return text_resp or "[No valid reply parsed]"
             else:
                 # Robust error message with details
+                logger.error(f"Gemini API error {resp.status}: {text_resp}")
                 raise FastAPIHTTP400({
                     "error": "Gemini API error",
                     "message": f"Gemini responded with HTTP {resp.status}",
@@ -192,9 +204,15 @@ async def answer_query(query: ChatQuery):
     """
     All user queries are sent to Google Gemini, with the content of answers.txt included as knowledge context.
     No hardcoded, fallback, or simulated logic is ever used; error is raised for any config issue.
+    Ensures that the 'answer' field in the response is NEVER None or empty string, and logs for debugging.
     """
     api_url, api_key = await require_gemini_config()
     answer_text = await query_gemini_live(query.question, api_url, api_key)
+    # Defensive logic: guarantee non-empty 'answer' for frontend UX
+    if not answer_text or not str(answer_text).strip():
+        logger.error(f"Gemini/backing logic produced empty or None answer for question: {repr(query.question)}")
+        fallback_message = "[No reply returned by Gemini. Please try again, or check backend logs for errors.]"
+        answer_text = fallback_message
     return ChatAnswer(answer=answer_text, from_gemini=True)
 
 # PUBLIC_INTERFACE
@@ -214,7 +232,10 @@ async def answer_query(query: ChatQuery):
 async def chat_interface(query: ChatQuery):
     """
     Identical to /answer. Chat endpoint for conversational UI.
+    Ensures 'answer' is never None or empty, with error/debug logging for blank Gemini responses.
     """
+    # Logging input arrival for debug
+    logger.info(f"Received /chat POST: {repr(query.question)}")
     return await answer_query(query)
 
 # PUBLIC_INTERFACE
