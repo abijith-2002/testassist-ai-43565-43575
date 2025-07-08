@@ -117,14 +117,17 @@ async def query_gemini_live(prompt: str, api_url: str, api_key: str) -> str:
     """
     Actually queries the Gemini API using user's prompt with answers.txt included as context.
     Returns the best answer from Gemini or raises for real HTTP errors.
+    Per Google Gemini API specification as of 2024-07, authentication must be done
+    via the `key` query parameter (?key=API_KEY). The Authorization header should NOT be used,
+    and will result in HTTP 401 if sent.
     """
 
     context = get_answers_txt_context()
     full_prompt = f"{context}\nUser question: {prompt}" if context else prompt
 
+    # Remove 'Authorization' header; use only Content-Type
     headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
     }
     json_payload = {
         "contents": [
@@ -136,8 +139,13 @@ async def query_gemini_live(prompt: str, api_url: str, api_key: str) -> str:
         ]
     }
 
+    # Add the key as a query parameter to the URL
+    from yarl import URL  # aiohttp dependency
+    parsed_url = URL(api_url).with_query(key=api_key)
+    api_full_url = str(parsed_url)
+
     async with aiohttp.ClientSession() as session:
-        async with session.post(api_url, headers=headers, json=json_payload) as resp:
+        async with session.post(api_full_url, headers=headers, json=json_payload) as resp:
             text_resp = await resp.text()
             if resp.status == 200:
                 try:
@@ -151,6 +159,7 @@ async def query_gemini_live(prompt: str, api_url: str, api_key: str) -> str:
                 except Exception:
                     return text_resp
             else:
+                # Robust error message with details
                 raise FastAPIHTTP400({
                     "error": "Gemini API error",
                     "message": f"Gemini responded with HTTP {resp.status}",
