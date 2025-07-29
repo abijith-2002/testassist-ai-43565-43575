@@ -83,21 +83,14 @@ async def require_gemini_config():
     """
     Raises a 400 error if GEMINI_API_KEY or GEMINI_API_URL is missing.
     Returns (api_url, api_key) if both present.
+
+    Always raises a FastAPIHTTP400 with the precise required message
+    'Gemini API key is not configured.' when config is not found.
     """
-    missing = []
     api_url = os.getenv("GEMINI_API_URL")
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_url:
-        missing.append("GEMINI_API_URL")
-    if not api_key:
-        missing.append("GEMINI_API_KEY")
-    if missing:
-        detail = {
-            "error": "Gemini API configuration error (RAG required live LLM)",
-            "message": "Required environment variable(s) missing.",
-            "missing": missing
-        }
-        raise FastAPIHTTP400(detail)
+    if not api_url or not api_key:
+        raise FastAPIHTTP400({"detail": "Gemini API key is not configured."})
     return api_url, api_key
 
 # -- Answers.txt utility: Load and parse all Q&A pairs into a list --
@@ -184,12 +177,13 @@ def retrieve_relevant_qa(history, max_matches=3):
     matches = matches[:max_matches]
     return matches
 
-# --- Gemini LLM integration (with fallback mock if not available) ---
+# --- Gemini LLM integration (with fallback DISABLED: always raise precise error if config missing) ---
 # PUBLIC_INTERFACE
 async def query_gemini_or_mock(prompt: str, chat_context: str, use_real: bool, api_url=None, api_key=None):
     """
-    Query Gemini with chat_context + prompt, used if Gemini API env/config is present, otherwise returns error.
+    Query Gemini with chat_context + prompt, used if Gemini API env/config is present.
     Returns generated answer (markdown string), or raises FastAPIHTTP400 if no Gemini API key is present.
+    Fallback/dummy/mock response is DISABLED: always raise FastAPIHTTP400 with 'Gemini API key is not configured.' if config missing.
     """
     full_prompt = (
         f"{chat_context}\n"
@@ -205,12 +199,9 @@ async def query_gemini_or_mock(prompt: str, chat_context: str, use_real: bool, a
     if "{CHAT_TRANSCRIPT}" in full_prompt:
         full_prompt = full_prompt.replace("{CHAT_TRANSCRIPT}", "")
 
-    # Gemini real API must be present; if not, return error (no dummy/mock logic)
+    # Always enforce: if Gemini config is missing, return only the exact required message and never proceed
     if not (use_real and api_url and api_key):
-        # Enforce: always return error if Gemini config is missing (per strict requirement)
-        raise FastAPIHTTP400(
-            {"detail": "Gemini API key is not configured."}
-        )
+        raise FastAPIHTTP400({"detail": "Gemini API key is not configured."})
 
     # Call real Gemini API
     from yarl import URL
@@ -277,18 +268,22 @@ async def rag_chat_endpoint(payload: ChatHistoryQuery):
     - Accepts POST payload: {history: [{role: ..., content: ...}, ...]}
     - Does retrieval on the latest user message and prior history.
     - Retrieves closest Q&A pairs from answers.txt, incorporates them into context.
-    - Calls Gemini (real or mock) with combined context and returns the answer.
+    - Calls Gemini (only if actually configured) with combined context and returns the answer.
     - Returns { "answer": ..., "from_gemini": true, "retrieval_refs": [<matched Qs>] }
+    - If Gemini API key is missing, returns exactly: "Gemini API key is not configured." (400)
     """
     logger.info(f"Received RAG /chat call: history={len(payload.history)} messages")
-    use_gemini = False
-    api_url = api_key = None
+    # Step 0: Validate Gemini config STRICTLY
     try:
         api_url, api_key = await require_gemini_config()
         use_gemini = True
-    except Exception as e:
-        # If Gemini config missing, immediately return the explicit required error
-        logger.warning(f"Gemini not configured (required): {e}")
+    except FastAPIHTTP400 as e:
+        # Pass through only our required error as-is
+        logger.warning("Gemini API config missing, sending only the required error message.")
+        raise
+    except Exception:
+        # Ignore details, always return exactly specified error
+        logger.warning("Gemini API config missing (generic exception), sending only the required error message.")
         raise FastAPIHTTP400({"detail": "Gemini API key is not configured."})
 
     # Step 1: Retrieve relevant Q&A from answers.txt
@@ -318,20 +313,19 @@ async def rag_chat_endpoint(payload: ChatHistoryQuery):
     if not last_user_msg:
         return RAGChatAnswer(answer="Sorry, no valid question found in chat history.", from_gemini=False, retrieval_refs=[])
 
-    # Step 4: Call Gemini only if configured; query_gemini_or_mock now always errors if config missing
+    # Step 4: Query Gemini (endpoint above ensures Gemini config is present), always returns or raises
     answer = await query_gemini_or_mock(
         prompt=last_user_msg,
         chat_context=context_block,
-        use_real=use_gemini,
+        use_real=True,
         api_url=api_url,
         api_key=api_key
     )
-    # Ensure returned answer is markdown and not blank
     if not answer or not str(answer).strip():
         answer = "Sorry, could not generate an answer at this time. Please try again later."
     return RAGChatAnswer(
         answer=answer,
-        from_gemini=use_gemini,
+        from_gemini=True,
         retrieval_refs=retrieval_refs
     )
 
