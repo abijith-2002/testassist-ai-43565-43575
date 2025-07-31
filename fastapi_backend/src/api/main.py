@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import aiohttp
-import asyncio
 
 # --- Set up logging for debug/error tracing ---
 logging.basicConfig(level=logging.INFO)
@@ -242,8 +241,8 @@ async def query_gemini_or_mock(prompt: str, chat_context: str, use_real: bool, a
                         "message": f"Gemini responded with HTTP {resp.status}",
                         "body": text_resp
                     })
-    except Exception as e:
-        logger.error(f"Gemini call/network error: {e}")
+    except Exception:
+        logger.error("Gemini call/network error.")
         raise FastAPIHTTP400({"detail": "Gemini API key is not configured."})
 
 # --- API Endpoints ---
@@ -276,8 +275,7 @@ async def rag_chat_endpoint(payload: ChatHistoryQuery):
     # Step 0: Validate Gemini config STRICTLY
     try:
         api_url, api_key = await require_gemini_config()
-        use_gemini = True
-    except FastAPIHTTP400 as e:
+    except FastAPIHTTP400:
         # Pass through only our required error as-is
         logger.warning("Gemini API config missing, sending only the required error message.")
         raise
@@ -379,3 +377,5 @@ def ws_usage():
     return {
         "info": "WebSocket endpoints are not supported at this time. Use /chat (POST) for all chatbot queries."
     }
+
+# End
