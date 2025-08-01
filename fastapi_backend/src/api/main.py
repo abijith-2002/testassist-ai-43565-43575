@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import aiohttp
-import asyncio
 
 # --- Set up logging for debug/error tracing ---
 logging.basicConfig(level=logging.INFO)
@@ -127,8 +126,8 @@ def load_answers_txt_raw():
                 "The following Q&A pairs from 'answers.txt' are authoritative for the current application. "
                 "If you find a matching question, answer exactly as in answers.txt. Otherwise, use your best knowledge.\n"
                 "----- BEGIN ANSWERS.TXT -----\n"
-                f"{qa_content}\n"
-                "----- END ANSWERS.TXT -----\n"
+                + qa_content +
+                "\n----- END ANSWERS.TXT -----\n"
             )
     except Exception:
         pass
@@ -242,8 +241,8 @@ async def query_gemini_or_mock(prompt: str, chat_context: str, use_real: bool, a
                         "message": f"Gemini responded with HTTP {resp.status}",
                         "body": text_resp
                     })
-    except Exception as e:
-        logger.error(f"Gemini call/network error: {e}")
+    except Exception:
+        logger.error(f"Gemini call/network error")
         raise FastAPIHTTP400({"detail": "Gemini API key is not configured."})
 
 # --- API Endpoints ---
@@ -276,8 +275,7 @@ async def rag_chat_endpoint(payload: ChatHistoryQuery):
     # Step 0: Validate Gemini config STRICTLY
     try:
         api_url, api_key = await require_gemini_config()
-        use_gemini = True
-    except FastAPIHTTP400 as e:
+    except FastAPIHTTP400:
         # Pass through only our required error as-is
         logger.warning("Gemini API config missing, sending only the required error message.")
         raise
@@ -300,9 +298,9 @@ async def rag_chat_endpoint(payload: ChatHistoryQuery):
     for entry in payload.history:
         chat_history_markdown += f"{entry.role.capitalize()}: {entry.content}\n"
     if retrieval_context:
-        context_block = f"Relevant Q&A:\n{retrieval_context}\nChat transcript:\n{chat_history_markdown}"
+        context_block = "Relevant Q&A:\n" + retrieval_context + "\nChat transcript:\n" + chat_history_markdown
     else:
-        context_block = f"Chat transcript:\n{chat_history_markdown}"
+        context_block = "Chat transcript:\n" + chat_history_markdown
 
     # Step 3: The full prompt sent to LLM/Gemini
     last_user_msg = None
@@ -379,3 +377,5 @@ def ws_usage():
     return {
         "info": "WebSocket endpoints are not supported at this time. Use /chat (POST) for all chatbot queries."
     }
+
+# End
