@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import aiohttp
-import asyncio
 
 # --- Set up logging for debug/error tracing ---
 logging.basicConfig(level=logging.INFO)
@@ -276,8 +275,7 @@ async def rag_chat_endpoint(payload: ChatHistoryQuery):
     # Step 0: Validate Gemini config STRICTLY
     try:
         api_url, api_key = await require_gemini_config()
-        use_gemini = True
-    except FastAPIHTTP400 as e:
+    except FastAPIHTTP400:
         # Pass through only our required error as-is
         logger.warning("Gemini API config missing, sending only the required error message.")
         raise
